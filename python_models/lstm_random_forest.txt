@@ -1,0 +1,138 @@
+# from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+# from sklearn.ensemble import RandomForestRegressor
+# import numpy as np
+# import json
+# import sys
+
+
+# # ================= FEATURE ENGINEERING =================
+# def create_features(data, window=7):
+#     X, y = [], []
+
+#     for i in range(len(data) - window):
+#         window_data = data[i:i + window]
+
+#         # Existing features
+#         trend = np.diff(window_data)
+#         mean = np.mean(window_data)
+#         std = np.std(window_data)
+
+#         # 🔥 NEW FEATURES (VERY IMPORTANT)
+#         last_val = window_data[-1]
+#         momentum = window_data[-1] - window_data[-3]   # short trend
+#         acceleration = (window_data[-1] - window_data[-2]) - (window_data[-2] - window_data[-3])
+
+#         features = (
+#             list(window_data) +
+#             list(trend) +
+#             [mean, std, last_val, momentum, acceleration]
+#         )
+
+#         X.append(features)
+#         y.append(data[i + window])
+
+#     return np.array(X), np.array(y)
+
+
+# # ================= MAIN =================
+# def run_lstm_forecast(df, place=None, sector=None, lookback=7, forecast_steps=7):
+#     try:
+#         if place:
+#             df = df[df['place'] == place]
+#         if sector:
+#             df = df[df['sector'] == sector]
+
+#         df = df.sort_values('date')
+#         values = df['energy_consumed'].values
+
+#         # 🔥 USE RECENT DATA ONLY (VERY IMPORTANT)
+#         values = values[-5000:]
+
+#         if len(values) < lookback + 10:
+#             return {"error": "Not enough data"}
+
+#         # ================= FEATURES =================
+#         X, y = create_features(values, lookback)
+
+#         # ================= SPLIT =================
+#         split = int(len(X) * 0.8)
+#         X_train, X_test = X[:split], X[split:]
+#         y_train, y_test = y[:split], y[split:]
+
+#         # ================= MODEL =================
+#         model = RandomForestRegressor(
+#             n_estimators=300,
+#             max_depth=12,
+#             min_samples_split=4,
+#             random_state=42,
+#             n_jobs=-1
+#         )
+
+#         model.fit(X_train, y_train)
+
+#         # ================= TEST =================
+#         y_pred = model.predict(X_test)
+
+#         mae = mean_absolute_error(y_test, y_pred)
+#         rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+#         mape = np.mean(np.abs((y_test - y_pred) / (y_test + 1e-8))) * 100
+#         r2 = r2_score(y_test, y_pred)
+
+#         # ================= FUTURE FORECAST =================
+#         last_window = values[-lookback:].tolist()
+#         forecast = []
+
+#         for _ in range(forecast_steps):
+#             trend = np.diff(last_window)
+#             mean = np.mean(last_window)
+#             std = np.std(last_window)
+
+#             last_val = last_window[-1]
+#             momentum = last_window[-1] - last_window[-3]
+#             acceleration = (last_window[-1] - last_window[-2]) - (last_window[-2] - last_window[-3])
+
+#             features = (
+#             last_window +
+#             list(trend) +
+#             [mean, std, last_val, momentum, acceleration]
+#             )
+
+#             pred = model.predict([features])[0]
+
+#             forecast.append(float(pred))
+
+#             last_window.pop(0)
+#             last_window.append(pred)
+
+#         return {
+#             "forecast": forecast,
+#             "metrics": {
+#                 "mae": float(mae),
+#                 "rmse": float(rmse),
+#                 "mape": float(mape),
+#                 "r2_score": float(r2)
+#             }
+#         }
+
+#     except Exception as e:
+#         return {"error": str(e)}
+
+
+# # ================= NODE ENTRY =================
+# if __name__ == "__main__":
+#     try:
+#         input_data = json.loads(sys.stdin.read())
+#         values = input_data["values"]
+
+#         import pandas as pd
+#         df = pd.DataFrame({
+#             "date": pd.date_range(start="2020-01-01", periods=len(values)),
+#             "energy_consumed": values
+#         })
+
+#         result = run_lstm_forecast(df)
+
+#         print(json.dumps(result))
+
+#     except Exception as e:
+#         print(json.dumps({"error": str(e)}))

@@ -1,0 +1,380 @@
+# """
+# FINAL Production Prophet-like Model
+# (STRICT date preservation + stable output)
+# """
+
+# import pandas as pd
+# import numpy as np
+# from sklearn.metrics import mean_absolute_error, mean_squared_error
+
+
+# class SimpleProphetModel:
+#     def __init__(self):
+#         self.trend_coef = 0.0
+#         self.trend_intercept = 0.0
+#         self.seasonality = None
+
+#     # ================= DATA PREP =================
+#     def prepare_data(self, df):
+#         df = df.copy()
+
+#         if 'ds' not in df.columns or 'y' not in df.columns:
+#             raise ValueError("Data must contain 'ds' and 'y'")
+
+#         # ✅ DO NOT OVERRIDE DATES
+#         df['ds'] = pd.to_datetime(df['ds'], errors='coerce')
+#         df = df.dropna(subset=['ds', 'y'])
+
+#         df = df.sort_values('ds').reset_index(drop=True)
+
+#         if len(df) < 10:
+#             raise ValueError("Not enough data")
+
+#         return df[['ds', 'y']]
+
+#     # ================= TREND =================
+#     def fit_trend(self, df):
+#         x = np.arange(len(df))
+#         y = df['y'].values
+
+#         x_mean = x.mean()
+#         y_mean = y.mean()
+
+#         num = ((x - x_mean) * (y - y_mean)).sum()
+#         den = ((x - x_mean) ** 2).sum()
+
+#         self.trend_coef = num / den if den != 0 else 0.0
+#         self.trend_intercept = y_mean - self.trend_coef * x_mean
+
+#     # ================= SEASONALITY =================
+#     def calculate_seasonality(self, df):
+#         df_copy = df.copy()
+#         df_copy['t'] = np.arange(len(df_copy))
+
+#         trend = self.trend_intercept + self.trend_coef * df_copy['t']
+#         detrended = df_copy['y'] - trend
+
+#         if len(df_copy) >= 14:
+#             weekly = np.zeros(7)
+#             counts = np.zeros(7)
+
+#             for i, date in enumerate(df_copy['ds']):
+#                 d = date.dayofweek
+#                 weekly[d] += detrended.iloc[i]
+#                 counts[d] += 1
+
+#             weekly = np.divide(
+#                 weekly,
+#                 counts,
+#                 where=counts != 0,
+#                 out=np.zeros_like(weekly)
+#             )
+
+#             self.seasonality = {'weekly': weekly}
+#         else:
+#             self.seasonality = None
+
+#     # ================= FORECAST =================
+#     def forecast(self, df, steps=7):
+#         n = len(df)
+#         forecast = []
+
+#         last_date = df['ds'].iloc[-1]
+#         prev = df['y'].iloc[-1]
+
+#         for i in range(1, steps + 1):
+#             trend_component = self.trend_coef * i
+
+#             seasonal_component = 0.0
+#             if self.seasonality:
+#                 seasonal_component = self.seasonality['weekly'][(n + i - 1) % 7]
+
+#             next_val = max(0, prev + trend_component + seasonal_component)
+
+#             forecast.append({
+#                 "day": f"Day {i}",
+#                 "date": (last_date + pd.Timedelta(days=i)).strftime("%Y-%m-%d"),
+#                 "value": round(float(next_val), 2)
+#             })
+
+#             prev = next_val
+
+#         return forecast
+
+
+# # ================= MAIN =================
+# def run_prophet_forecast(df, forecast_steps=7):
+#     try:
+#         model = SimpleProphetModel()
+
+#         df_prepared = model.prepare_data(df)
+
+#         # Split
+#         split = int(len(df_prepared) * 0.8)
+#         train = df_prepared.iloc[:split]
+#         test = df_prepared.iloc[split:]
+
+#         # Train
+#         model.fit_trend(train)
+#         model.calculate_seasonality(train)
+
+#         # Forecast
+#         forecast = model.forecast(train, forecast_steps)
+
+#         # Walk-forward validation
+#         temp_df = train.copy()
+#         preds = []
+
+#         for i in range(len(test)):
+#             temp_model = SimpleProphetModel()
+#             temp_model.fit_trend(temp_df)
+#             temp_model.calculate_seasonality(temp_df)
+
+#             pred = temp_model.forecast(temp_df, 1)[0]['value']
+#             preds.append(pred)
+
+#             new_row = pd.DataFrame({
+#                 "ds": [test['ds'].iloc[i]],
+#                 "y": [pred]
+#             })
+
+#             temp_df = pd.concat([temp_df, new_row], ignore_index=True)
+
+#         y_true = test['y'].values
+#         y_pred = np.array(preds)
+
+#         mae = mean_absolute_error(y_true, y_pred)
+#         rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+
+#         mape = np.mean(np.abs((y_true - y_pred) / np.maximum(y_true, 1))) * 100
+
+#         ss_res = np.sum((y_true - y_pred) ** 2)
+#         ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+#         r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+
+#         historical = [
+#             {"date": row['ds'].strftime("%Y-%m-%d"), "value": float(row['y'])}
+#             for _, row in df_prepared.tail(20).iterrows()
+#         ]
+
+#         return {
+#             "status": "success",
+#             "model": "Prophet",
+#             "forecast": forecast,
+#             "metrics": {
+#                 "MAE": float(mae),
+#                 "RMSE": float(rmse),
+#                 "MAPE": float(mape),
+#                 "R2": float(r2)
+#             },
+#             "historical": historical,
+#             "data_points": len(df_prepared)
+#         }
+
+#     except Exception as e:
+#         return {"status": "error", "message": str(e)}
+
+
+===================================
+prophet_flexible
+# import pandas as pd
+# import numpy as np
+# from prophet_model import run_prophet_forecast
+
+
+# def run_prophet_forecast_flexible(input_data, forecast_steps=14, column_name=None):
+#     try:
+#         # ================= INPUT HANDLING =================
+#         if isinstance(input_data, pd.DataFrame):
+#             df = input_data.copy()
+#         else:
+#             return {
+#                 "status": "error",
+#                 "message": "Input must be DataFrame"
+#             }
+
+#         # ================= COLUMN FIX =================
+#         if 'date' in df.columns:
+#             df.rename(columns={'date': 'ds'}, inplace=True)
+
+#         if 'energy_consumed' in df.columns:
+#             df.rename(columns={'energy_consumed': 'y'}, inplace=True)
+
+#         if 'ds' not in df.columns or 'y' not in df.columns:
+#             return {
+#                 "status": "error",
+#                 "message": "Missing required columns"
+#             }
+
+#         df = df[['ds', 'y']].dropna()
+
+#         if len(df) < 10:
+#             return {
+#                 "status": "error",
+#                 "message": "Not enough data"
+#             }
+
+#         # ================= CALL CORE MODEL =================
+#         result = run_prophet_forecast(df, forecast_steps)
+
+#         return result
+
+#     except Exception as e:
+#         return {
+#             "status": "error",
+#             "message": str(e)
+#         }
+
+# import pandas as pd
+# import numpy as np
+# from prophet_model import run_prophet_forecast
+
+
+# def run_prophet_forecast_flexible(input_data, forecast_steps=14, column_name=None):
+#     try:
+#         # ================= INPUT HANDLING =================
+#         if isinstance(input_data, pd.DataFrame):
+#             df = input_data.copy()
+#         else:
+#             return {
+#                 "status": "error",
+#                 "message": "Input must be DataFrame"
+#             }
+
+#         # ================= COLUMN STANDARDIZATION =================
+#         # Rename safely without overwriting unnecessarily
+#         if 'date' in df.columns and 'ds' not in df.columns:
+#             df.rename(columns={'date': 'ds'}, inplace=True)
+
+#         if 'energy_consumed' in df.columns and 'y' not in df.columns:
+#             df.rename(columns={'energy_consumed': 'y'}, inplace=True)
+
+#         # ================= VALIDATION =================
+#         if 'ds' not in df.columns or 'y' not in df.columns:
+#             return {
+#                 "status": "error",
+#                 "message": "Missing required columns: ds (date) and y (target)"
+#             }
+
+#         df = df[['ds', 'y']].dropna()
+
+#         # 🔥 FIX DATE FORMAT (VERY IMPORTANT)
+#         df['ds'] = pd.to_datetime(df['ds'], errors='coerce')
+#         df = df.dropna(subset=['ds'])
+
+#         # 🔥 SORT DATA (critical for Prophet)
+#         df = df.sort_values('ds')
+
+#         if len(df) < 10:
+#             return {
+#                 "status": "error",
+#                 "message": "Not enough data"
+#             }
+
+#         # 🚀 LIMIT DATA (huge speed gain, no accuracy loss)
+#         df = df.tail(5000)
+
+#         # ================= CALL CORE MODEL =================
+#         result = run_prophet_forecast(df, forecast_steps)
+
+#         return result
+
+#     except Exception as e:
+#         return {
+#             "status": "error",
+#             "message": str(e)
+#         }
+
+import pandas as pd
+import numpy as np
+from prophet_model import run_prophet_forecast
+
+
+def run_prophet_forecast_flexible(input_data, forecast_steps=14, column_name=None):
+    try:
+        # ================= INPUT HANDLING =================
+        if isinstance(input_data, pd.DataFrame):
+            df = input_data.copy()
+        else:
+            return {
+                "status": "error",
+                "message": "Input must be a pandas DataFrame"
+            }
+
+        # ================= AUTO COLUMN DETECTION =================
+        cols = df.columns.tolist()
+
+        # Detect date column
+        if 'ds' not in cols:
+            for c in cols:
+                if 'date' in c.lower() or 'time' in c.lower():
+                    df.rename(columns={c: 'ds'}, inplace=True)
+                    break
+
+        # Detect target column
+        if 'y' not in df.columns:
+            if column_name and column_name in df.columns:
+                df.rename(columns={column_name: 'y'}, inplace=True)
+            else:
+                numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                if not numeric_cols:
+                    return {
+                        "status": "error",
+                        "message": "No numeric column found for forecasting"
+                    }
+                df.rename(columns={numeric_cols[0]: 'y'}, inplace=True)
+
+        # ================= VALIDATION =================
+        if 'ds' not in df.columns or 'y' not in df.columns:
+            return {
+                "status": "error",
+                "message": "Could not detect required columns (ds, y)"
+            }
+
+        df = df[['ds', 'y']].dropna()
+
+        # ================= DATE FIX =================
+        df['ds'] = pd.to_datetime(df['ds'], errors='coerce')
+        df = df.dropna(subset=['ds'])
+
+        # ================= SORT =================
+        df = df.sort_values('ds')
+
+        # ================= REMOVE DUPLICATES =================
+        df = df.drop_duplicates(subset=['ds'])
+
+        # ================= OUTLIER CLIPPING (IMPORTANT) =================
+        q_low = df['y'].quantile(0.01)
+        q_high = df['y'].quantile(0.99)
+        df['y'] = np.clip(df['y'], q_low, q_high)
+
+        # ================= DATA REDUCTION =================
+        df = df.tail(4000)   # ⚡ faster than 5000
+
+        if len(df) < 20:
+            return {
+                "status": "error",
+                "message": "Not enough data after cleaning"
+            }
+
+        # ================= NORMALIZATION (KEY FIX) =================
+        # Helps Prophet learn trend properly
+        mean = df['y'].mean()
+        std = df['y'].std() if df['y'].std() != 0 else 1
+        df['y'] = (df['y'] - mean) / std
+
+        # ================= RUN MODEL =================
+        result = run_prophet_forecast(df, forecast_steps)
+
+        # ================= DENORMALIZE OUTPUT =================
+        if "forecast" in result:
+            for item in result["forecast"]:
+                item["value"] = float(item["value"] * std + mean)
+
+        return result
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
